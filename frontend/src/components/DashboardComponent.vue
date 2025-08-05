@@ -13,6 +13,8 @@
       :currentCost="currentCost"
       :budgetData="budgetData"
       :budgetPercentage="budgetPercentage"
+      :analyticsData="dashboardAnalyticsData"
+      :key="dashboardKey"
       @update-budget="updateBudget"
     />
 
@@ -21,6 +23,7 @@
       v-if="activeTab === 'analytics'"
       :analyticsData="analyticsData"
       :heatmapData="heatmapData"
+      :key="analyticsKey"
       @load-analytics="loadAnalytics"
     />
 
@@ -60,8 +63,12 @@ export default {
         over_budget: false
       },
       analyticsData: [],
+      dashboardAnalyticsData: [], // Separate data for dashboard
       alerts: [],
-      heatmapData: []
+      heatmapData: Array(24).fill(0),
+      dashboardKey: 0, // Force re-render key for dashboard
+      analyticsKey: 0, // Force re-render key for analytics
+      dataLoading: false
     }
   },
   computed: {
@@ -71,75 +78,177 @@ export default {
     }
   },
   mounted() {
-    this.loadDashboardData()
-    this.loadHeatmapData() // Load from API instead of generating
+    this.initializeDashboard()
+    
+    // Set up periodic updates
     setInterval(() => {
-      this.loadDashboardData()
-      if (this.activeTab === 'dashboard') {
-        this.loadHeatmapData() // Update heatmap periodically
+      if (!this.dataLoading) {
+        this.loadDashboardData()
       }
     }, 30000) // Update every 30 seconds
   },
   methods: {
+    async initializeDashboard() {
+      // Initial load with some delay to ensure DOM is ready
+      await this.$nextTick()
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await this.loadDashboardData()
+    },
+
     async loadDashboardData() {
+      if (this.dataLoading) return
+      this.dataLoading = true
+
       try {
-        // Load budget data
-        const budgetResponse = await fetch('http://127.0.0.1:5000/api/budget')
-        if (budgetResponse.ok) {
-          const budgetData = await budgetResponse.json()
-          this.budgetData = {
-            budget: parseFloat(budgetData.budget) || 0,
-            spent: parseFloat(budgetData.spent) || 0,
-            remaining: parseFloat(budgetData.remaining) || 0,
-            over_budget: budgetData.over_budget || false
-          }
-        } else {
-          console.error('Failed to load budget data:', budgetResponse.status)
-        }
+        console.log('Loading dashboard data...')
         
-        // Load analytics for dashboard chart (recent data)
-        const analyticsResponse = await fetch('http://127.0.0.1:5000/api/analytics')
-        if (analyticsResponse.ok) {
-          const data = await analyticsResponse.json()
-          this.analyticsData = data || []
+        // Load all data in parallel
+        const [budgetData, analyticsData, alertsData, heatmapData] = await Promise.allSettled([
+          this.fetchBudgetData(),
+          this.fetchAnalyticsData(),
+          this.fetchAlertsData(),
+          this.fetchHeatmapData()
+        ])
+
+        // Process budget data
+        if (budgetData.status === 'fulfilled' && budgetData.value) {
+          this.budgetData = budgetData.value
+        }
+
+        // Process analytics data for dashboard (last 24 hours)
+        if (analyticsData.status === 'fulfilled' && analyticsData.value) {
+          this.analyticsData = analyticsData.value
+          this.dashboardAnalyticsData = this.filterLast24Hours(analyticsData.value)
           
           // Update current usage from latest data point
-          if (this.analyticsData.length > 0) {
-            const latest = this.analyticsData[this.analyticsData.length - 1]
+          if (this.dashboardAnalyticsData.length > 0) {
+            const latest = this.dashboardAnalyticsData[this.dashboardAnalyticsData.length - 1]
             this.currentUsage = Math.round(parseFloat(latest.power) || 0)
-            this.currentCost = Math.round((parseFloat(latest.power) || 0) * 0.27) // Assuming 0.27 Rs per WH
+            this.currentCost = Math.round((parseFloat(latest.power) || 0) * 0.27)
           }
-        } else {
-          console.error('Failed to load analytics data:', analyticsResponse.status)
         }
-        
-        // Load alerts
-        const alertsResponse = await fetch('http://127.0.0.1:5000/api/alerts')
-        if (alertsResponse.ok) {
-          this.alerts = await alertsResponse.json() || []
-        } else {
-          console.error('Failed to load alerts:', alertsResponse.status)
+
+        // Process alerts data
+        if (alertsData.status === 'fulfilled' && alertsData.value) {
+          this.alerts = alertsData.value
         }
+
+        // Process heatmap data
+        if (heatmapData.status === 'fulfilled' && heatmapData.value) {
+          this.heatmapData = heatmapData.value
+        }
+
+        // Force re-render of dashboard component to fix chart issues
+        this.dashboardKey++
+
+        console.log('Dashboard data loaded successfully')
         
       } catch (err) {
         console.error('Error loading dashboard data:', err)
-        // Fallback to prevent breaking the UI
-        this.budgetData = {
-          budget: 1000,
-          spent: 516,
-          remaining: 484,
-          over_budget: false
-        }
+      } finally {
+        this.dataLoading = false
       }
+    },
+
+    filterLast24Hours(data) {
+      if (!data || !Array.isArray(data)) return []
+      
+      const twentyFourHoursAgo = new Date()
+      twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24)
+      
+      return data.filter(entry => {
+        const entryDate = new Date(entry.timestamp)
+        return entryDate >= twentyFourHoursAgo
+      }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    },
+
+    async fetchBudgetData() {
+      try {
+        const response = await fetch('http://127.0.0.1:5000/api/budget')
+        if (response.ok) {
+          const data = await response.json()
+          return {
+            budget: parseFloat(data.budget) || 0,
+            spent: parseFloat(data.spent) || 0,
+            remaining: parseFloat(data.remaining) || 0,
+            over_budget: data.over_budget || false
+          }
+        } else {
+          console.error('Failed to load budget data:', response.status)
+          return null
+        }
+      } catch (err) {
+        console.error('Error fetching budget data:', err)
+        return null
+      }
+    },
+
+    async fetchAnalyticsData() {
+      try {
+        const response = await fetch('http://127.0.0.1:5000/api/analytics')
+        if (response.ok) {
+          const data = await response.json()
+          return Array.isArray(data) ? data : []
+        } else {
+          console.error('Failed to load analytics data:', response.status)
+          return []
+        }
+      } catch (err) {
+        console.error('Error fetching analytics data:', err)
+        return []
+      }
+    },
+
+    async fetchAlertsData() {
+      try {
+        const response = await fetch('http://127.0.0.1:5000/api/alerts')
+        if (response.ok) {
+          const data = await response.json()
+          return Array.isArray(data) ? data : []
+        } else {
+          console.error('Failed to load alerts data:', response.status)
+          return []
+        }
+      } catch (err) {
+        console.error('Error fetching alerts data:', err)
+        return []
+      }
+    },
+
+    async fetchHeatmapData() {
+      try {
+        const response = await fetch('http://127.0.0.1:5000/api/heatmap')
+        if (response.ok) {
+          const data = await response.json()
+          return Array.isArray(data) ? data : Array(24).fill(0)
+        } else {
+          console.error('Failed to load heatmap data:', response.status)
+          return this.generateFallbackHeatmapData()
+        }
+      } catch (err) {
+        console.error('Error fetching heatmap data:', err)
+        return this.generateFallbackHeatmapData()
+      }
+    },
+
+    generateFallbackHeatmapData() {
+      return Array.from({ length: 24 }, (_, i) => {
+        if (i >= 6 && i <= 9) return Math.round(Math.random() * 800 + 200) // Morning peak
+        if (i >= 18 && i <= 22) return Math.round(Math.random() * 1000 + 300) // Evening peak
+        return Math.round(Math.random() * 400 + 50) // Normal hours
+      })
     },
     
     async updateBudget(newBudget) {
-      if (!newBudget || newBudget <= 0) {
+      if (!newBudget || isNaN(newBudget) || parseFloat(newBudget) <= 0) {
         console.warn('Invalid budget value:', newBudget)
+        alert('Please enter a valid budget amount')
         return
       }
       
       try {
+        console.log('Updating budget to:', newBudget)
+        
         const response = await fetch('http://127.0.0.1:5000/api/budget', {
           method: 'POST',
           headers: {
@@ -149,16 +258,34 @@ export default {
         })
         
         if (response.ok) {
-          const updatedBudgetData = await response.json()
-          // Reload dashboard data to get updated budget info
-          await this.loadDashboardData()
+          const updatedData = await response.json()
+          console.log('Budget update response:', updatedData)
+          
+          // Update the budget data directly from the response
+          if (updatedData.budget !== undefined) {
+            this.budgetData = {
+              budget: parseFloat(updatedData.budget) || 0,
+              spent: parseFloat(updatedData.spent) || 0,
+              remaining: parseFloat(updatedData.remaining) || 0,
+              over_budget: updatedData.over_budget || false
+            }
+            
+            // Force dashboard re-render
+            this.dashboardKey++
+            
+            console.log('Budget updated successfully:', this.budgetData)
+          } else {
+            // Fallback: reload dashboard data
+            await this.loadDashboardData()
+          }
         } else {
-          console.error('Failed to update budget:', response.status)
           const errorData = await response.json()
-          console.error('Error details:', errorData)
+          console.error('Failed to update budget:', response.status, errorData)
+          alert('Failed to update budget: ' + (errorData.error || 'Unknown error'))
         }
       } catch (err) {
         console.error('Error updating budget:', err)
+        alert('Error updating budget: ' + err.message)
       }
     },
     
@@ -171,31 +298,16 @@ export default {
         
         const response = await fetch(url)
         if (response.ok) {
-          const data = await response.json()
-          this.analyticsData = data || []
+          const responseData = await response.json()
+          this.analyticsData = Array.isArray(responseData) ? responseData : []
+          
+          // Force analytics re-render
+          this.analyticsKey++
         } else {
           console.error('Failed to load analytics:', response.status)
         }
       } catch (err) {
         console.error('Error loading analytics:', err)
-      }
-    },
-    
-    async loadHeatmapData() {
-      try {
-        const response = await fetch('http://127.0.0.1:5000/api/heatmap')
-        if (response.ok) {
-          const data = await response.json()
-          this.heatmapData = data || Array(24).fill(0)
-        } else {
-          console.error('Failed to load heatmap data:', response.status)
-          // Fallback to generated data
-          this.generateHeatmapData()
-        }
-      } catch (err) {
-        console.error('Error loading heatmap data:', err)
-        // Fallback to generated data
-        this.generateHeatmapData()
       }
     },
     
@@ -210,36 +322,34 @@ export default {
         })
         
         if (response.ok) {
-          await this.loadDashboardData()
+          // Just reload alerts data instead of all dashboard data
+          const alertsData = await this.fetchAlertsData()
+          if (alertsData) {
+            this.alerts = alertsData
+          }
         } else {
           console.error('Failed to ignore alert:', response.status)
         }
       } catch (err) {
         console.error('Error ignoring alert:', err)
       }
-    },
-    
-    generateHeatmapData() {
-      // Generate sample heatmap data for 24 hours (fallback)
-      this.heatmapData = Array.from({ length: 24 }, (_, i) => {
-        // Simulate higher usage during peak hours
-        if (i >= 6 && i <= 9) return Math.round(Math.random() * 800 + 200) // Morning peak
-        if (i >= 18 && i <= 22) return Math.round(Math.random() * 1000 + 300) // Evening peak
-        return Math.round(Math.random() * 400 + 50) // Normal hours
-      })
     }
   },
   
   watch: {
-    activeTab(newTab) {
-      this.$nextTick(() => {
-        if (newTab === 'analytics') {
-          this.loadAnalytics()
-          this.loadHeatmapData()
-        } else if (newTab === 'dashboard') {
-          this.loadDashboardData()
-        }
-      })
+    activeTab: {
+      handler(newTab, oldTab) {
+        console.log(`Tab changed from ${oldTab} to ${newTab}`)
+        
+        this.$nextTick(() => {
+          if (newTab === 'analytics') {
+            this.loadAnalytics()
+          } else if (newTab === 'dashboard') {
+            this.loadDashboardData()
+          }
+        })
+      },
+      immediate: false
     }
   }
 }

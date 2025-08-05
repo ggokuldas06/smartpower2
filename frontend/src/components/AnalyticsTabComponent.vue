@@ -117,12 +117,25 @@ export default {
     }
   },
   methods: {
-    switchView(view) {
-      this.analyticsView = view
-      if (this.chartsReady) {
-        this.updateCharts()
-      }
-    },
+    async switchView(view) {
+  this.analyticsView = view
+  
+  // Load filtered data from API
+  try {
+    const response = await fetch(`http://127.0.0.1:5000/api/analytics?period=${view}`)
+    if (response.ok) {
+      const data = await response.json()
+      // Emit to parent to update analyticsData
+      this.$emit('load-analytics', view, data)
+    }
+  } catch (error) {
+    console.error('Error loading analytics data:', error)
+  }
+  
+  if (this.chartsReady) {
+    this.updateCharts()
+  }
+},
     
     generateSampleData() {
       // Generate weekly data (7 days)
@@ -149,107 +162,102 @@ export default {
     },
     
     getCurrentData() {
-      // Use actual analyticsData prop instead of sample data
-      if (this.analyticsData && this.analyticsData.length > 0) {
-        // Filter data based on current view
-        const now = new Date()
-        const cutoffDate = new Date()
-        
-        if (this.analyticsView === 'week') {
-          cutoffDate.setDate(now.getDate() - 7)
-        } else {
-          cutoffDate.setDate(now.getDate() - 30)
-        }
-        
-        const filteredData = this.analyticsData.filter(d => 
-          new Date(d.timestamp) >= cutoffDate
-        )
-        
-        // Aggregate data differently for week vs month
-        let processedData
-        if (this.analyticsView === 'week') {
-          // For week view, show daily aggregation
-          processedData = this.aggregateByDay(filteredData)
-        } else {
-          // For month view, show weekly aggregation
-          processedData = this.aggregateByWeek(filteredData)
-        }
-        
-        // Return plain objects to avoid Vue reactivity issues
-        return JSON.parse(JSON.stringify(processedData))
-      }
-      
-      // Fallback to sample data if no real data available
-      const data = this.analyticsView === 'week' ? this.weeklyData : this.monthlyData
-      return JSON.parse(JSON.stringify(data))
-    },
+  // Always use real data from props if available
+  if (this.analyticsData && this.analyticsData.length > 0) {
+    const data = JSON.parse(JSON.stringify(this.analyticsData))
+    
+    // Apply aggregation based on view
+    if (this.analyticsView === 'week') {
+      return this.aggregateByDay(data)
+    } else {
+      return this.aggregateByWeek(data)
+    }
+  }
+  
+  // Fallback to sample data
+  const data = this.analyticsView === 'week' ? this.weeklyData : this.monthlyData
+  return JSON.parse(JSON.stringify(data))
+},
+    
     
     aggregateByDay(data) {
-      const dailyData = {}
-      
-      data.forEach(entry => {
-        const date = new Date(entry.timestamp)
-        const dateKey = date.toDateString()
-        
-        if (!dailyData[dateKey]) {
-          dailyData[dateKey] = {
-            timestamp: new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12).toISOString(),
-            power: 0,
-            current: 0,
-            count: 0
-          }
-        }
-        
-        dailyData[dateKey].power += parseFloat(entry.power) || 0
-        dailyData[dateKey].current += parseFloat(entry.current) || 0
-        dailyData[dateKey].count += 1
+  const dailyData = new Map()
+  
+  data.forEach(entry => {
+    const date = new Date(entry.timestamp)
+    // Create a date key using just year-month-day
+    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    
+    if (!dailyData.has(dateKey)) {
+      dailyData.set(dateKey, {
+        timestamp: new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12).toISOString(),
+        power: 0,
+        current: 0,
+        count: 0,
+        date: dateKey
       })
-      
-      // Convert to array and calculate averages
-      return Object.values(dailyData)
-        .map(day => ({
-          timestamp: day.timestamp,
-          power: Math.round(day.power),
-          current: Math.round(day.current / day.count * 100) / 100
-        }))
-        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-    },
+    }
+    
+    const dayData = dailyData.get(dateKey)
+    dayData.power += parseFloat(entry.power) || 0
+    dayData.current += parseFloat(entry.current) || 0
+    dayData.count += 1
+  })
+  const result = Array.from(dailyData.values())
+    .map(day => ({
+      timestamp: day.timestamp,
+      power: Math.round(day.power), // Total power for the day
+      current: Math.round(day.current / day.count * 100) / 100, // Average current
+      date: day.date
+    }))
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+  
+  console.log('Daily aggregated data:', result) // Debug log
+  return result
+},
+
     
     aggregateByWeek(data) {
-      const weeklyData = {}
-      
-      data.forEach(entry => {
-        const date = new Date(entry.timestamp)
-        // Get week start (Sunday)
-        const weekStart = new Date(date)
-        weekStart.setDate(date.getDate() - date.getDay())
-        weekStart.setHours(0, 0, 0, 0)
-        
-        const weekKey = weekStart.toISOString()
-        
-        if (!weeklyData[weekKey]) {
-          weeklyData[weekKey] = {
-            timestamp: weekStart.toISOString(),
-            power: 0,
-            current: 0,
-            count: 0
-          }
-        }
-        
-        weeklyData[weekKey].power += parseFloat(entry.power) || 0
-        weeklyData[weekKey].current += parseFloat(entry.current) || 0
-        weeklyData[weekKey].count += 1
+  const weeklyData = new Map()
+  
+  data.forEach(entry => {
+    const date = new Date(entry.timestamp)
+    // Get week start (Monday instead of Sunday for better grouping)
+    const weekStart = new Date(date)
+    const day = date.getDay()
+    const diff = date.getDate() - day + (day === 0 ? -6 : 1) // Adjust for Monday start
+    weekStart.setDate(diff)
+    weekStart.setHours(0, 0, 0, 0)
+    
+    const weekKey = weekStart.toISOString().split('T')[0] // Use date string as key
+    
+    if (!weeklyData.has(weekKey)) {
+      weeklyData.set(weekKey, {
+        timestamp: weekStart.toISOString(),
+        power: 0,
+        current: 0,
+        count: 0
       })
-      
-      // Convert to array and calculate averages
-      return Object.values(weeklyData)
-        .map(week => ({
-          timestamp: week.timestamp,
-          power: Math.round(week.power),
-          current: Math.round(week.current / week.count * 100) / 100
-        }))
-        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-    },
+    }
+    const weekData = weeklyData.get(weekKey)
+    weekData.power += parseFloat(entry.power) || 0
+    weekData.current += parseFloat(entry.current) || 0
+    weekData.count += 1
+  })
+  
+  const result = Array.from(weeklyData.values())
+    .map(week => ({
+      timestamp: week.timestamp,
+      power: Math.round(week.power), // Total power for the week
+      current: Math.round(week.current / week.count * 100) / 100 // Average current
+    }))
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+  
+  console.log('Weekly aggregated data:', result) // Debug log
+  return result
+},
+
+        
     
     initializeCharts() {
       this.createAnalyticsChart()
