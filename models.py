@@ -30,3 +30,4 @@ class TheftAlert(db.Model):
     power = db.Column(db.Float)
     current = db.Column(db.Float)
     is_ignored = db.Column(db.Boolean, default=False)
+    message= db.Column(db.String,nullable=True)

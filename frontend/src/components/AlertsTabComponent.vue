@@ -13,7 +13,7 @@
     >
       <div class="alert-content">
         <div class="alert-time">{{ formatDate(alert.timestamp) }}</div>
-        <div class="alert-type">⚠️ Possible theft detected</div>
+        <div class="alert-type">⚠️ {{alert.message}}</div>
         <div>Power: {{ alert.power }} WH, Current: {{ alert.current }} A</div>
       </div>
       <div class="alert-actions">

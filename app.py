@@ -42,7 +42,7 @@ def handle_preflight():
         response.headers.add('Access-Control-Allow-Headers', "*")
         response.headers.add('Access-Control-Allow-Methods', "*")
         return response
-
+dic = {"current_key": 0, "power_key": 0}
 @app.route('/api/data', methods=['POST'])
 def receive_data():
     data = request.get_json()
@@ -54,13 +54,15 @@ def receive_data():
         return jsonify({"error": "No active term."}), 400
 
     entry = PowerData(term_id=term.id, current=current, power=power)
+    dic["current_key"]=current
+    dic["power_key"]=power
     db.session.add(entry)
     db.session.commit()
     print(f"{current} got it!  letsgoooooo ")
-    theft = False  # Replace this with real model logic if needed
+    theft = data.get("theft") # Replace this with real model logic if needed
 
     if theft:
-        alert = TheftAlert(term_id=term.id, current=current, power=power)
+        alert = TheftAlert(term_id=term.id, current=current, power=power,message="possible threat!!")
         db.session.add(alert)
         db.session.commit()
         return jsonify({"status": "data received", "theft": True}), 200
@@ -173,12 +175,64 @@ def budget_monitor():
     budget = float(term.budget) if term.budget else 0.0
     remaining = max(0, budget - spent)
     
+    # Only create alerts if budget is set and remaining is 0 or negative
+    if budget > 0 and remaining <= 0:
+        actual = budget - spent
+        
+        if actual == 0:
+            # Check if "Budget completed" alert already exists for this term
+            existing_alert = TheftAlert.query.filter_by(
+                term_id=term.id, 
+                message="Budget completed!! 0$ left"
+            ).first()
+            
+            if not existing_alert:
+                alert = TheftAlert(
+                    term_id=term.id, 
+                    current=dic["current_key"], 
+                    power=dic["power_key"],
+                    message="Budget completed!! 0$ left"
+                )
+                db.session.add(alert)
+                db.session.commit()
+                
+        elif actual < 0:
+            over_amount = (-1) * actual
+            message = f"spending over budget!! {over_amount}$ over"
+            
+            # Check if similar "over budget" alert already exists for this term
+            existing_alert = TheftAlert.query.filter_by(term_id=term.id)\
+                .filter(TheftAlert.message.like("spending over budget!!%"))\
+                .first()
+            
+            if not existing_alert:
+                alert = TheftAlert(
+                    term_id=term.id, 
+                    current=dic["current_key"], 
+                    power=dic["power_key"],
+                    message=message
+                )
+                db.session.add(alert)
+                db.session.commit()
+            else:
+                # Update existing alert with new over-budget amount
+                existing_alert.message = message
+                existing_alert.timestamp = datetime.utcnow()  # Update timestamp
+                existing_alert.current = dic["current_key"]
+                existing_alert.power = dic["power_key"]
+                db.session.commit()
+
     return jsonify({
         "budget": budget,
         "spent": spent,
         "remaining": remaining,
         "over_budget": spent > budget if budget > 0 else False
     })
+
+    i
+
+  
+    
 
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -255,7 +309,8 @@ def manage_alerts():
             "timestamp": a.timestamp.isoformat(),
             "current": float(a.current) if a.current else 0,
             "power": float(a.power) if a.power else 0,
-            "ignored": a.is_ignored
+            "ignored": a.is_ignored,
+            "message": a.message
         } for a in alerts
     ])
 
