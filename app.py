@@ -4,6 +4,8 @@ from flask_cors import CORS
 from datetime import datetime, timedelta
 from random import uniform
 from time import sleep
+import numpy as np
+import joblib
 # import joblib  # Optional, for ML model
 from models import *
 
@@ -33,6 +35,15 @@ with app.app_context():
         db.session.add(Term())
         db.session.commit()
 
+
+#loading ml model
+try:
+    model = joblib.load("theft_model.pkl")
+    print("ML Model loaded")
+except Exception as e:
+    model = None
+    print("Error in loading model:",e)
+
 # Add OPTIONS handler for CORS preflight requests
 @app.before_request
 def handle_preflight():
@@ -59,7 +70,19 @@ def receive_data():
     db.session.add(entry)
     db.session.commit()
     print(f"{current} got it!  letsgoooooo ")
-    theft = data.get("theft") # Replace this with real model logic if needed
+    
+    #ml prediction
+    now = datetime.now()
+    hour_of_day = now.hour
+    day_of_week=now.weekday()
+    is_weekend = 1 if day_of_week >= 5 else 0
+    features = np.array([[current, power, hour_of_day, day_of_week, is_weekend]])
+    theft = False
+    if model:
+        prediction = model.predict(features)
+        print("Model prediction done !!")
+        theft = bool(prediction[0])
+    
 
     if theft:
         alert = TheftAlert(term_id=term.id, current=current, power=power,message="possible threat!!")
