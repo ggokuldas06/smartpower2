@@ -1,0 +1,14 @@
+venv/
+env/
+.venv/
+ENV/
+
+*.db
+*.sqlite3
+*.pkl
+*.joblib
+*.csv
+
+
+frontend/node_modules/
+frontend/dist/

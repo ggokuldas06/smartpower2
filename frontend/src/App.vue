@@ -42,9 +42,15 @@ export default {
     handleLoginSuccess() {
       this.isLoggedIn = true
     },
-    handleLogout() {
+    async handleLogout() {
       this.isLoggedIn = false
       localStorage.removeItem('user_id')
+      const res = await fetch("http://localhost:5000/api/logout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          }
+        });
     }
   }
 }

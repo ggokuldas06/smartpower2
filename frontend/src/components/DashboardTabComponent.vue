@@ -1,31 +1,55 @@
-// Complete DashboardTabComponent.vue with robust Chart.js handling
+// Updated DashboardTabComponent.vue with current reading and payment features
 
 <template>
   <div class="dashboard-tab">
     <div class="stats-grid">
       <div class="stat-card">
         <h3>Current Usage</h3>
-        <div class="stat-value">{{ currentUsage }} WH</div>
+        <div class="stat-value">{{ currentReading.power }} WH</div>
+        <div class="stat-timestamp" v-if="currentReading.timestamp">
+          Last updated: {{ formatTimestamp(currentReading.timestamp) }}
+        </div>
       </div>
       <div class="stat-card">
         <h3>Current Cost</h3>
-        <div class="stat-value">₹{{ currentCost }}</div>
+        <div class="stat-value">₹{{ budgetData.spent }}</div>
+        <div class="stat-detail">{{ currentReading.current }}A</div>
       </div>
       <div class="stat-card">
-        <h3>Budget Status</h3>
-        <div class="budget-progress">
-          <div class="progress-bar">
-            <div 
-              class="progress-fill" 
-              :style="{ width: budgetPercentage + '%' }"
-              :class="{ 'over-budget': budgetData.over_budget }"
-            ></div>
-          </div>
-          <div class="budget-text">
-            ₹{{ budgetData.spent }} / ₹{{ budgetData.budget }}
-          </div>
-        </div>
+  <button @click="fetchBudgets" class="refresh-btn">🔄 Refresh</button>
+  <h3>Budget Status</h3>
+  <div class="budget-progress">
+    <div class="progress-bar">
+      <div 
+        class="progress-fill" 
+        :style="{ width: budgetPercentage + '%' }"
+        :class="{ 'over-budget': budgetData.over_budget }"
+      ></div>
+    </div>
+    <!-- ✅ Fixed: Show remaining bill amount and total paid -->
+    <div class="budget-text">
+      Remaining Bill: ₹{{ budgetData.remaining }} 
+      <div class="paid-amount" v-if="budgetData.paid_amount > 0">
+        Already Paid: ₹{{ budgetData.paid_amount }}
       </div>
+      <div class="budget-info">
+        Budget: ₹{{ budgetData.budget }} | Total Spent: ₹{{ budgetData.spent }}
+      </div>
+    </div>
+  </div>
+  <div class="payment-section">
+    <input 
+      type="number" 
+      v-model="amount" 
+      placeholder="Enter payment amount"
+      min="1"
+      step="1"
+    >
+    <button @click="paybill" :disabled="!amount || amount <= 0">
+      Pay Bill
+    </button>
+  </div>
+</div>
     </div>
 
     <div class="chart-section">
@@ -91,6 +115,7 @@ export default {
       default: () => ({
         budget: 1000,
         spent: 0,
+        paid_amount: 0,
         remaining: 1000,
         over_budget: false
       })
@@ -104,17 +129,23 @@ export default {
       default: () => []
     }
   },
-  emits: ['update-budget'],
+  emits: ['update-budget', 'pay', 'data-generated'],
   data() {
     return {
       chart: null,
       chartReady: false,
       newBudget: '',
+      amount: '',
       chartWidth: 800,
       chartHeight: 400,
       initializationAttempts: 0,
       maxInitAttempts: 3,
-      chartData: []
+      chartData: [],
+      currentReading: {
+        current: 0,
+        power: 0,
+        timestamp: null
+      }
     }
   },
   computed: {
@@ -124,9 +155,18 @@ export default {
   },
   mounted() {
     this.initializeComponent()
+    this.fetchCurrentReading()
+    this.fetchBudgets()
+    // Set up interval to fetch current reading every 30 seconds
+    this.currentReadingInterval = setInterval(() => {
+      this.fetchCurrentReading()
+    }, 30000)
   },
   beforeUnmount() {
     this.cleanupChart()
+    if (this.currentReadingInterval) {
+      clearInterval(this.currentReadingInterval)
+    }
   },
   watch: {
     analyticsData: {
@@ -139,6 +179,38 @@ export default {
     }
   },
   methods: {
+    async fetchCurrentReading() {
+      try {
+        const response = await fetch('http://127.0.0.1:5000/api/current-reading')
+        if (response.ok) {
+          const data = await response.json()
+          this.currentReading = data
+        }
+      } catch (error) {
+        console.error('Error fetching current reading:', error)
+      }
+    },
+    fetchBudgets() {
+  fetch("http://localhost:5000/api/budget")
+    .then(res => res.json())
+    .then(data => {
+      // ✅ Update the budgetData that the template uses
+      this.budgetData = {
+        budget: data.budget || 0,
+        spent: data.spent || 0,
+        paid_amount: data.paid_amount || 0,
+        remaining: data.remaining || 0,
+        over_budget: data.over_budget || false
+      }
+    })
+    .catch(err => console.error("Error fetching budget:", err))
+},
+    formatTimestamp(timestamp) {
+      if (!timestamp) return ''
+      const date = new Date(timestamp)
+      return date.toLocaleString()
+    },
+
     async initializeComponent() {
       // Wait for DOM to be fully ready
       await this.$nextTick()
@@ -419,6 +491,7 @@ export default {
     refreshChart() {
       console.log('Refreshing chart...')
       this.cleanupChart()
+      this.fetchCurrentReading() // Also refresh current reading
       setTimeout(() => {
         this.initializeChart()
       }, 100)
@@ -445,6 +518,34 @@ export default {
       this.$emit('update-budget', parseFloat(this.newBudget))
       this.newBudget = ''
     },
+    paybill() {
+  if (!this.amount || this.amount <= 0) {
+    alert('Please enter a valid payment amount')
+    return
+  }
+  
+  const remainingBill = this.budgetData.remaining  // ✅ Use remaining (which is now remaining bill)
+  if (this.amount > remainingBill) {
+    alert(`Payment amount cannot exceed remaining bill of ₹${remainingBill.toFixed(2)}`)
+    return
+  }
+
+  fetch("http://localhost:5000/api/pay", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount: this.amount })
+  })
+  .then(res => res.json())
+  .then(data => {
+    console.log("Payment success:", data)
+    this.fetchBudgets()   // ✅ This will refresh the display
+    this.$emit('budget-updated')  // ✅ Emit event to parent component
+  })
+  .catch(err => console.error("Payment failed:", err))
+
+  this.amount = ''
+},
+
 
     async generateSampleData() {
       try {
@@ -502,6 +603,18 @@ export default {
   color: #333;
 }
 
+.stat-timestamp {
+  font-size: 12px;
+  color: #888;
+  margin-top: 5px;
+}
+
+.stat-detail {
+  font-size: 14px;
+  color: #666;
+  margin-top: 5px;
+}
+
 .budget-progress {
   margin-top: 10px;
 }
@@ -528,6 +641,52 @@ export default {
   margin-top: 8px;
   font-size: 14px;
   color: #666;
+}
+
+.paid-amount {
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.remaining-bill {
+  margin-top: 5px;
+  font-size: 14px;
+  color: #e53e3e;
+  font-weight: 500;
+}
+
+.payment-section {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  align-items: center;
+}
+
+.payment-section input {
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  flex: 1;
+  max-width: 150px;
+}
+
+.payment-section button {
+  padding: 8px 16px;
+  background: #22c55e;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.payment-section button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.payment-section button:not(:disabled):hover {
+  background: #16a34a;
 }
 
 .chart-section {
@@ -656,5 +815,17 @@ export default {
 
 .btn-secondary:hover {
   background: #cbd5e0;
+}
+.budget-info {
+  font-size: 12px;
+  color: #666;
+  margin-top: 5px;
+}
+
+.paid-amount {
+  color: #22c55e;
+  font-weight: 500;
+  font-size: 14px;
+  margin-top: 5px;
 }
 </style>

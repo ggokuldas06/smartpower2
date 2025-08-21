@@ -13,6 +13,7 @@ class Term(db.Model):
     start_date = db.Column(db.DateTime, default=datetime.utcnow)
     end_date = db.Column(db.DateTime, nullable=True)
     budget = db.Column(db.Float, default=0.0)
+    paid_amount = db.Column(db.Float, default=0.0)  # New field for partial payments
     is_active = db.Column(db.Boolean, default=True)
     bill_paid = db.Column(db.Boolean, default=False)
 
