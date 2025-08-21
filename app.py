@@ -4,7 +4,7 @@ from flask_cors import CORS
 from datetime import datetime, timedelta
 from random import uniform
 from time import sleep
-# import joblib  # Optional, for ML model
+import joblib  # Optional, for ML model
 from services.email_service import send_html_email
 from models import *
 import numpy as np
@@ -80,6 +80,8 @@ def receive_data():
     dic["power_key"]=power
     db.session.add(entry)
     db.session.commit()
+    
+    #ml part
     now = datetime.now()
     hour_of_day = now.hour
     day_of_week=now.weekday()
@@ -393,7 +395,6 @@ def manage_alerts():
             else:
                 label=0
             new_row = {
-                "timestamp": timestamp,
                 "current": alert.current,
                 "power": alert.power,
                 "hour_of_day": timestamp.hour,
