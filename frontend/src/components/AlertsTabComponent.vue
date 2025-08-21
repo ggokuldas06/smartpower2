@@ -17,8 +17,11 @@
         <div>Power: {{ alert.power }} WH, Current: {{ alert.current }} A</div>
       </div>
       <div class="alert-actions">
-        <button class="btn-ignore" @click="ignoreAlert(alert.id)">
+        <button class="btn-ignore" @click="ignoreAlert(alert.id, 'ignore')">
           Ignore
+        </button>
+        <button class="btn-ignore" @click="ignoreAlert(alert.id, 'accept')">
+          Raise
         </button>
       </div>
     </div>
@@ -41,8 +44,8 @@ export default {
     }
   },
   methods: {
-    ignoreAlert(alertId) {
-      this.$emit('ignore-alert', alertId)
+    ignoreAlert(alertId,feed) {
+      this.$emit('ignore-alert', alertId,feed)
     },
     
     formatDate(dateString) {

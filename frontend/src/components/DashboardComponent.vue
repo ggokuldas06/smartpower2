@@ -311,14 +311,14 @@ export default {
       }
     },
     
-    async ignoreAlert(alertId) {
+    async ignoreAlert(alertId,feed) {
       try {
         const response = await fetch('http://127.0.0.1:5000/api/alerts', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ alert_id: alertId })
+          body: JSON.stringify({ alert_id: alertId , feedback: feed})
         })
         
         if (response.ok) {

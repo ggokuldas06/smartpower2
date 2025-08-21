@@ -369,7 +369,9 @@ def manage_alerts():
             return jsonify({"error": "No data provided"}), 400
             
         alert_id = data.get("alert_id")
+        feed=data.get("feedback")
         alert = TheftAlert.query.get(alert_id)
+        print(f"{feed}")
         if alert:
             # 1️⃣ Mark ignored in DB
             alert.is_ignored = True
@@ -385,14 +387,19 @@ def manage_alerts():
                 df = pd.DataFrame(columns=[
                     "current","power","hour_of_day","day_of_week","is_weekend","label"
                 ])
-
+            label=0
+            if feed == "accept":
+                label=1
+            else:
+                label=0
             new_row = {
+                "timestamp": timestamp,
                 "current": alert.current,
                 "power": alert.power,
                 "hour_of_day": timestamp.hour,
                 "day_of_week": timestamp.weekday(),
                 "is_weekend": 1 if timestamp.weekday() >= 5 else 0,
-                "label": 0  # 👈 ignoring means "not theft"
+                "label": label  # 👈 ignoring means "not theft"
             }
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
             df.to_csv(dataset, index=False)
