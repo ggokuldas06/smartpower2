@@ -1,5 +1,5 @@
 ---
-This README includes:  
+This README includes
 - Project overview  
 - Features  
 - IoT hardware list  
