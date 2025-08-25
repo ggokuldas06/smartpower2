@@ -167,13 +167,13 @@ npm run serve
 
 ### Alerts & Notifications
 
--Theft or budget breach alerts are sent via Email and shown in Dashboard > Alerts tab.
+- Theft or budget breach alerts are sent via Email and shown in Dashboard > Alerts tab.
 
--- Options:
+- Options:
 
---- Ignore → Mark as anomaly, not theft (model won’t raise alerts for this pattern).
+- 1. Ignore → Mark as anomaly, not theft (model won’t raise alerts for this pattern).
 
---- Raise → Confirm theft, system continues alerting.
+- 2. Raise → Confirm theft, system continues alerting.
 
 ### Future Scope
 
