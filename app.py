@@ -54,7 +54,7 @@ def send_email():
    body = request.json.get("body")
    address = request.json.get("address")
    msg_email = render_template("registration.html")
-   send_html_email.delay(msg_email,address, subject,"orenjagidraf@gmail.com")
+   send_html_email.delay(msg_email,address, subject,"sample@gmail.com")
    
 @app.before_request
 def handle_preflight():
@@ -101,7 +101,7 @@ def receive_data():
         print("Theft alert created!")
         if user_email_global:
             print("Sending theft alert email to:", user_email_global)
-            send_html_email("Theft detected! Take care", user_email_global, "theft", "gamerocker1002@gmail.com")
+            send_html_email("Theft detected! Take care", user_email_global, "theft", "admin@gmail.com")
         return jsonify({"status": "data received", "theft": True}), 200
 
     return jsonify({"status": "data received", "theft": False}), 200
@@ -274,7 +274,7 @@ def budget_monitor():
             message = f"spending over budget!! {over_amount}$ over"
             if user_email_global:
                 print("Sending theft alert email to:", user_email_global)
-                send_html_email(f"spending over budget by {over_amount}", user_email_global, "theft", "gamerocker1002@gmail.com")
+                send_html_email(f"spending over budget by {over_amount}", user_email_global, "theft", "sample@gmail.com")
             # Check if similar "over budget" alert already exists for this term
             existing_alert = TheftAlert.query.filter_by(term_id=term.id)\
                 .filter(TheftAlert.message.like("spending over budget!!%"))\
